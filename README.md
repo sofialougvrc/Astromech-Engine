@@ -14,7 +14,7 @@ actuators in sync under real-time constraints. This is that problem, solved
 in software first, in simulation, before any hardware exists.
 
 ## Architecture
-See https://github.com/sofiagvrc/Astromech-Engine/blob/master/docs/PLAN.md for full design (scheduler, sequence DSL,
+See [docs/PLAN.md](docs/PLAN.md) for full design (scheduler, sequence DSL,
 sync engine, benchmark plan).
 
 ## Roadmap
