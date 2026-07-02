@@ -6,7 +6,7 @@ against a declarative timed sequence, with a swappable actuator backend
 (simulated now, real hardware later).
 
 ## Status
-🚧 Early development. Currently building the core scheduler.
+Early development. Currently building the core scheduler.
 
 ## Why
 Animatronics' hard problem isn't moving one motor — it's keeping many
