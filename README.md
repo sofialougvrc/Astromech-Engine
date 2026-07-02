@@ -14,7 +14,7 @@ actuators in sync under real-time constraints. This is that problem, solved
 in software first, in simulation, before any hardware exists.
 
 ## Architecture
-See [docs/PLAN.md](docs/PLAN.md) for full design (scheduler, sequence DSL,
+See https://github.com/sofialougvrc/Astromech-Engine/blob/main/astromech-control-engine-plan.md for full design (scheduler, sequence DSL,
 sync engine, benchmark plan).
 
 ## Roadmap
