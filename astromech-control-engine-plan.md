@@ -1,5 +1,5 @@
 # Astromech Control Engine (ACE)
-### Design notes — real-time brain for the R2 build
+### Design notes — full architecture & build plan
 
 ---
 
@@ -7,7 +7,7 @@
 
 Real R2 builds run on a Pi-brain / Arduino-actuator split — R2PY puts a Raspberry Pi on top of Arduino boards for the higher-level logic, and MarcDuino uses a Master/Slave Arduino pair where the Master interprets commands from a remote (R2 Touch app) and relays them to the Slave, which drives the actual panels, lights, and sound.
 
-ACE follows that same split, just implemented from scratch in C++ instead of stock MarcDuino firmware, so I own every layer end to end:
+ACE follows that same split, implemented from scratch in C++ instead of stock MarcDuino firmware, so I own every layer end to end:
 
 | Real R2 role | ACE equivalent |
 |---|---|
@@ -17,23 +17,35 @@ ACE follows that same split, just implemented from scratch in C++ instead of sto
 | R2 Touch app (button press → one command) | Trigger Mode |
 | N/A — not typical in hobbyist builds | Sequence Mode (scripted, timed, benchmarked cues) |
 
-Most real droids only need Trigger Mode day to day. Sequence Mode is the extra layer I'm adding on top, closer to how stage/theme-park animatronics are cued than to a typical astromech remote — it's what makes the timing/jitter/sync benchmarks meaningful, and it's the part of this that's actually mine rather than a reimplementation of an existing system.
+Most real droids only need Trigger Mode day to day. Sequence Mode is the extra layer on top — closer to how stage/theme-park animatronics are cued than to a typical astromech remote — and it's what makes the timing/jitter/sync benchmarks meaningful.
 
 ---
 
-## 1. What this is
+## 1. Current status
+
+Software core is complete and verified in simulation:
+- Scheduler, both control modes, actuator bus, telemetry, sync engine, CLI, benchmark harness, React/D3 dashboard — all working, tests passing
+- Real UART serial code written (`actuator_serial.hpp/.cpp`) — termios config, newline-delimited frames, optional ACK, encodes `SERVO:`/`LIGHT:`/`AUDIO:` commands
+- Arduino slave sketch drafted (`arduino_ace_slave.ino`) — parses frames, supports PING/STATUS/SERVO/LIGHT with ACK/error responses
+- `actuators.json` example config and `docs/SERIAL_PROTOCOL.md` written
+
+**Not yet done, all hardware-gated:** none of the serial code has touched a real board. First hardware test order: PING → one LED → one unloaded servo, before anything with load or motion range that could bind or strain.
+
+---
+
+## 2. What this is
 
 A C++ real-time scheduler + command router driving multiple actuators (servos, motors, lights, sound), in two modes:
 - **Trigger Mode** — single immediate command, mirrors a remote button press
 - **Sequence Mode** — timed, multi-track, choreographed cues
 
-Runs on a Raspberry Pi in the final build (same spot R2PY's brain sits), talks to Arduino boards over serial/I2C for actual actuator I/O (same spot MarcDuino's Master/Slave sit). Ships as a library + CLI + dashboard now; becomes the literal controller once hardware exists — same core, swapped actuator backend.
+Runs on a Raspberry Pi in the final build (same spot R2PY's brain sits), talks to Arduino boards over serial/I2C for actual actuator I/O (same spot MarcDuino's Master/Slave sit).
 
-**Design constraint:** the actuator layer has to be swappable (virtual ↔ hardware) without touching the scheduler, command router, or sync engine. Swapping `VirtualActuator` for `SerialActuator` should be a one-line change in the factory, nothing else.
+**Design constraint:** the actuator layer has to be swappable (virtual ↔ hardware) without touching the scheduler, command router, or sync engine.
 
 ---
 
-## 2. System architecture
+## 3. System architecture
 
 ```
         ┌───────────────┐        ┌─────────────────────┐
@@ -66,7 +78,12 @@ Runs on a Raspberry Pi in the final build (same spot R2PY's brain sits), talks t
   │ actuator  │ │ actuator     │ │ (miniaudio)   │
   │ (sim)     │ │ → Arduino(s) │ └───────────────┘
   └──────┬────┘ │ over UART/I2C│                    ← MarcDuino Slave role
-         │      └──────────────┘
+         │      └──────┬───────┘
+         │             │
+         │      ┌──────▼───────────┐
+         │      │ Safety layer        │  calibration limits, e-stop,
+         │      │ (before any motion)  │  watchdog/reconnect
+         │      └──────────────────────┘
          ▼
 ┌──────────────────┐        ┌────────────────────┐
 │ Telemetry / metrics │──────▶│  WebSocket bridge    │
@@ -79,7 +96,7 @@ Runs on a Raspberry Pi in the final build (same spot R2PY's brain sits), talks t
 
 ---
 
-## 3. Repo layout
+## 4. Repo layout
 
 ```
 astromech-control-engine/
@@ -88,10 +105,11 @@ astromech-control-engine/
 │   ├── scheduler.hpp
 │   ├── event_queue.hpp
 │   ├── sequence.hpp
-│   ├── trigger.hpp             # single-command / remote-trigger path
-│   ├── actuator.hpp            # abstract interface
+│   ├── trigger.hpp
+│   ├── actuator.hpp             # abstract interface
 │   ├── actuator_virtual.hpp
-│   ├── actuator_serial.hpp     # real HW: Arduino Master/Slave over UART/I2C
+│   ├── actuator_serial.hpp      # real HW: Arduino Master/Slave over UART/I2C
+│   ├── safety_limits.hpp        # calibration ranges, e-stop, watchdog
 │   ├── sync_engine.hpp
 │   ├── telemetry.hpp
 │   └── ws_bridge.hpp
@@ -101,7 +119,11 @@ astromech-control-engine/
 │   ├── dome_spin_beep.seq.json
 │   └── examples/...
 ├── triggers/
-│   └── trigger_map.json        # remote button IDs → single commands
+│   └── trigger_map.json
+├── config/
+│   └── actuators.example.json
+├── firmware/
+│   └── arduino_ace_slave.ino
 ├── bench/
 │   └── stress_actuators.cpp
 ├── dashboard/
@@ -111,12 +133,13 @@ astromech-control-engine/
 ├── tests/
 └── docs/
     ├── DSL_SPEC.md
-    └── TRIGGER_SPEC.md
+    ├── TRIGGER_SPEC.md
+    └── SERIAL_PROTOCOL.md
 ```
 
 ---
 
-## 4a. Trigger Mode
+## 5a. Trigger Mode
 
 ```json
 {
@@ -128,9 +151,9 @@ astromech-control-engine/
 }
 ```
 
-Dispatched immediately — t=0, no future timestamps. Functionally the same thing MarcDuino does when R2 Touch sends a command byte. Building this first once the core scheduler lands, since it's simpler than sequence mode and it's what actually gets used for live remote-control demos.
+Dispatched immediately — t=0, no future timestamps. Functionally the same thing MarcDuino does when R2 Touch sends a command byte.
 
-## 4b. Sequence Mode
+## 5b. Sequence Mode
 
 ```json
 {
@@ -163,24 +186,24 @@ Dispatched immediately — t=0, no future timestamps. Functionally the same thin
 }
 ```
 
-Both modes route through the same ActuatorBus — a trigger is really just a sequence with one t=0 event per track. Building the scheduler generically (any timed event list) rather than as two separate code paths, since that keeps the two modes consistent for free.
+Both modes route through the same ActuatorBus — a trigger is a sequence with one t=0 event per track.
 
 ---
 
-## 5. Core scheduler
+## 6. Core scheduler
 
-- **Clock:** `std::chrono::steady_clock` only — never wall clock, not monotonic.
-- **Loop model:** sleep until next event's deadline (`sleep_until`) for sequence mode; immediate dispatch for trigger mode.
-- **Data structure:** min-heap (`std::priority_queue` or custom binary heap) keyed by `t_ms`.
-- **Dispatch:** on wake, pop all events due within a small epsilon window, dispatch to ActuatorBus, record actual-fire-time vs scheduled-time as jitter.
-- **Deadline miss policy:** log + increment a counter, don't block waiting on late actuators — one slow channel shouldn't stall everything else.
-- **Threading:** single scheduler thread; actuator writes dispatched to a thread pool when the backend blocks (e.g. serial I/O to an Arduino), so a slow motor write can't stall a light cue.
+- **Clock:** `std::chrono::steady_clock` only — never wall clock.
+- **Loop model:** sleep until next event's deadline for sequence mode; immediate dispatch for trigger mode.
+- **Data structure:** min-heap keyed by `t_ms`.
+- **Dispatch:** on wake, pop all events due within a small epsilon window, dispatch to ActuatorBus, record jitter.
+- **Deadline miss policy:** log + increment a counter, don't block waiting on late actuators.
+- **Threading:** single scheduler thread; actuator writes dispatched to a thread pool when the backend blocks (serial I/O), so a slow motor write can't stall a light cue.
 
 ```cpp
 class Scheduler {
 public:
     void load(const CompiledSequence& seq);
-    void fireTrigger(const Trigger& trig);   // immediate-dispatch path
+    void fireTrigger(const Trigger& trig);
     void run();
     void stop();
     TelemetrySnapshot telemetry() const;
@@ -193,7 +216,7 @@ private:
 
 ---
 
-## 6. Actuator abstraction layer
+## 7. Actuator abstraction layer
 
 ```cpp
 class IActuator {
@@ -205,65 +228,78 @@ public:
 
 class VirtualActuator : public IActuator { /* in-memory state, no I/O */ };
 
-// Real hardware: same role as MarcDuino's Master board — takes a high-level
-// command and relays it, over UART or I2C, to Arduino "Slave" boards doing
-// the direct actuator I/O.
-class SerialActuator : public IActuator { /* writes to Arduino Master/Slave over UART/I2C */ };
+class SerialActuator : public IActuator {
+    // real HW: opens serial device, configures baud via termios,
+    // writes newline-delimited frames, optional ACK wait
+    // encodes: SERVO:id:angle | SERVO:id:OPEN/CLOSE | LIGHT:pin:ON/OFF | AUDIO:id:PLAY:file
+};
 ```
 
-ActuatorBus holds a `map<string, unique_ptr<IActuator>>` built from `actuators.json` at startup. On real hardware this config also specifies which physical Arduino (Master for dome/panels, Slave for lights/sound) each actuator ID lives on.
+ActuatorBus holds a `map<string, unique_ptr<IActuator>>` built from `actuators.json`. Config specifies which physical Arduino (Master for dome/panels, Slave for lights/sound) each actuator ID lives on.
 
 ---
 
-## 7. Sync engine
+## 8. Safety layer (built before adding actuators beyond the first)
 
-Audio and motion are fired from the same event queue but have different latency characteristics — audio backend buffering vs. serial write + motor response time. "Synchronized" means bounded drift, not zero drift.
+- **Calibration limits:** min/max angle per servo, enforced in the actuator layer — reject out-of-range commands rather than sending them
+- **Hardware dry-run mode:** flag that logs what would be sent without writing to serial
+- **Logging to file:** persistent record for debugging after the fact
+- **Emergency stop / kill switch:** physical button or serial command that immediately zeroes all actuators — built before anything runs unattended or has multiple motors that could collide
+- **Watchdog/reconnect:** detect a dropped Arduino connection and handle it safely rather than silently continuing to issue commands into the void
+- **Power-state awareness:** know whether the mount/actuators actually have power before issuing commands
+
+---
+
+## 9. Sync engine
 
 - Each track reports `committed_fire_time` back to the sync engine the moment its backend actually executes the command.
 - Drift = `max(committed_fire_time) − min(committed_fire_time)` across tracks scheduled for the same `t_ms`.
 - If drift exceeds `sync_tolerance_ms`, log a violation with the offending track IDs.
-- v1: measure and report drift honestly, don't try to correct it. Correction is a later feature once real numbers show where drift actually comes from.
+- v1: measure and report drift honestly, don't correct it yet.
 
 ---
 
-## 8. Telemetry & benchmarks
+## 10. Telemetry & benchmarks
 
 - Scheduling jitter: scheduled vs. actual fire time (mean, p99, max)
-- Deadline miss rate: % of events fired >X ms late
-- Sync drift: cross-track drift as above
-- Max concurrent actuators before jitter degrades: ramp actuator count until p99 crosses a defined threshold
+- Deadline miss rate
+- Sync drift
+- Max concurrent actuators before jitter degrades
 - Throughput: events/sec dispatched without missing deadlines
 
-`bench/stress_actuators.cpp` generates synthetic sequences with N virtual actuators on tight overlapping schedules, sweeps N, plots jitter vs N.
+`bench/stress_actuators.cpp` sweeps N virtual actuators, plots jitter vs N.
 
 ---
 
-## 9. Dashboard
+## 11. Dashboard
 
-- WebSocket bridge (uWebSockets or Boost.Asio) streams ActuatorState at ~60Hz.
-- React + D3 rig view — dome/legs/lights as simple shapes, animated live as a sequence plays.
-- Second panel: live jitter/drift graph, scrolling window.
-
----
-
-## 10. Build phases
-
-| Phase | Scope | Est. time |
-|---|---|---|
-| 1 | Scheduler + priority queue + monotonic clock, unit tests | 3-4 days |
-| 2 | Trigger Mode: single-command dispatch, trigger_map.json parsing | 1-2 days |
-| 3 | Sequence Mode: DSL parser + compiler, validation | 2-3 days |
-| 4 | VirtualActuator + ActuatorBus, wire scheduler → actuators | 2-3 days |
-| 5 | Telemetry: jitter/deadline tracking, CLI output | 2 days |
-| 6 | Sync engine + drift measurement | 2-3 days |
-| 7 | WebSocket bridge + minimal React dashboard | 3-4 days |
-| 8 | D3 timing graph, polish rig view | 2-3 days |
-| 9 | Benchmark harness + stress test + writeup | 2 days |
-| 10 (later) | SerialActuator — real Arduino Master/Slave over UART/I2C | — |
+- WebSocket bridge (uWebSockets or Boost.Asio) streams ActuatorState at ~60Hz — currently scaffolded, needs real telemetry wired through once hardware exists
+- React + D3 rig view, live jitter/drift graph
 
 ---
 
-## 11. Tech stack
+## 12. Full build phases
+
+| Phase | Scope | Est. time | Status |
+|---|---|---|---|
+| 1 | Scheduler + priority queue + monotonic clock, unit tests | 3-4 days | Done |
+| 2 | Trigger Mode: single-command dispatch | 1-2 days | Done |
+| 3 | Sequence Mode: DSL parser + compiler | 2-3 days | Done |
+| 4 | VirtualActuator + ActuatorBus | 2-3 days | Done |
+| 5 | Telemetry: jitter/deadline tracking | 2 days | Done |
+| 6 | Sync engine + drift measurement | 2-3 days | Done |
+| 7 | WebSocket bridge + React dashboard | 3-4 days | Done (sim) |
+| 8 | Benchmark harness + stress test | 2 days | Done |
+| 9 | Real SerialActuator (UART/termios) + Arduino slave sketch | — | Written, untested on hardware |
+| 10 | Hardware test: PING → one LED → one unloaded servo | — | Blocked on parts |
+| 11 | Safety layer: calibration limits, dry-run mode, logging | — | Blocked on Phase 10 |
+| 12 | Emergency stop + watchdog/reconnect | — | Blocked on Phase 10 |
+| 13 | Expand actuator zoo: real audio backend, real lights | — | Blocked on Phase 10-12 |
+| 14 | Wire real telemetry through WebSocket bridge to dashboard | — | Blocked on Phase 13 |
+
+---
+
+## 13. Tech stack
 
 - Core: C++20, CMake, GoogleTest
 - Audio: miniaudio or SDL2_mixer
@@ -274,6 +310,17 @@ Audio and motion are fired from the same event queue but have different latency 
 
 ---
 
-## 12. First step
+## 14. Hardware shopping list (Phase 10)
 
-Scheduler + priority queue + one hardcoded blinking virtual LED, unit test asserting fire time within tolerance. Nothing else until that's solid.
+- Arduino Uno or Nano
+- One SG90 micro servo
+- USB cable
+- Small breadboard + jumper wires
+- One LED + 220Ω resistor (for the LED test step)
+- Separate 5V power supply (not needed for one servo on USB power, but required once more than one actuator is added)
+
+---
+
+## 15. Next concrete step
+
+Order the Phase 10 hardware. Once it arrives: PING first (zero motion, tests the whole serial chain), then the LED (low-stakes wiring check), then the unloaded servo (the real milestone — scheduler-driven motion on real hardware). Nothing in Phase 11 onward starts until Phase 10 passes.
