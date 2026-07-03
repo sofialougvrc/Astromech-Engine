@@ -1,0 +1,5 @@
+build/
+dashboard/dist/
+dashboard/node_modules/
+work/npm-cache/
+.DS_Store

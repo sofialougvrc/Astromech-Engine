@@ -1,0 +1,29 @@
+{
+  "name": "panel_wave",
+  "tracks": [
+    {
+      "actuator": "dome_panel_1",
+      "type": "servo",
+      "events": [
+        { "t_ms": 0, "action": "open" },
+        { "t_ms": 350, "action": "close" }
+      ]
+    },
+    {
+      "actuator": "dome_panel_2",
+      "type": "servo",
+      "events": [
+        { "t_ms": 120, "action": "open" },
+        { "t_ms": 470, "action": "close" }
+      ]
+    },
+    {
+      "actuator": "primary_speaker",
+      "type": "audio",
+      "events": [
+        { "t_ms": 60, "action": "play", "file": "chirp_02.wav" }
+      ]
+    }
+  ],
+  "sync_tolerance_ms": 10
+}

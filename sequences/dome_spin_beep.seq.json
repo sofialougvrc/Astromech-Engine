@@ -1,0 +1,28 @@
+{
+  "name": "dome_spin_beep",
+  "tracks": [
+    {
+      "actuator": "dome_rotation",
+      "type": "servo",
+      "events": [
+        { "t_ms": 0, "action": "move_to", "angle_deg": 90, "duration_ms": 800 }
+      ]
+    },
+    {
+      "actuator": "front_logic_lights",
+      "type": "light",
+      "events": [
+        { "t_ms": 0, "action": "set", "state": "on" },
+        { "t_ms": 800, "action": "set", "state": "off" }
+      ]
+    },
+    {
+      "actuator": "primary_speaker",
+      "type": "audio",
+      "events": [
+        { "t_ms": 50, "action": "play", "file": "beep_03.wav" }
+      ]
+    }
+  ],
+  "sync_tolerance_ms": 10
+}

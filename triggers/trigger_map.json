@@ -1,0 +1,18 @@
+{
+  "triggers": [
+    {
+      "trigger_id": "panel_3_open",
+      "commands": [
+        { "actuator": "dome_panel_3", "type": "servo", "action": "open" },
+        { "actuator": "primary_speaker", "type": "audio", "action": "play", "file": "chirp_02.wav" }
+      ]
+    },
+    {
+      "trigger_id": "logic_lights_toggle",
+      "commands": [
+        { "actuator": "front_logic_lights", "type": "light", "action": "toggle" },
+        { "actuator": "rear_logic_lights", "type": "light", "action": "toggle" }
+      ]
+    }
+  ]
+}
