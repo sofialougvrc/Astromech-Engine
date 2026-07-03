@@ -1,4 +1,4 @@
-# Astromech-Engine
+# Astromech Control Engine (ACE)
 
 Real-time control engine for synchronized actuator sequencing — the software
 brain for an astromech droid build. Coordinates motors, lights, and audio
