@@ -1,6 +1,27 @@
-# Astromech Control Engine
+# Astromech Control Engine (ACE)
 
-ACE is a C++20 prototype control brain for an R2-style astromech build. It follows the Pi-brain / Arduino-actuator split from real R2 builder ecosystems while keeping trigger mode, sequence mode, telemetry, and actuator backends under one swappable core.
+Real-time control engine for synchronized actuator sequencing: the software brain for an astromech droid build. ACE coordinates motors, lights, and audio against declarative timed sequences, with a swappable actuator backend for simulation now and real hardware later.
+
+Inspired by real R2 builder architecture, ACE follows a Pi-brain / Arduino-actuator split: the C++ core owns scheduling, triggers, telemetry, and sync logic, while Arduino-style slave boards eventually handle direct servo/light I/O.
+
+## Status
+
+Working software prototype. Hardware code is drafted but not yet tested against physical devices.
+
+Completed in this repo:
+
+- Monotonic scheduler with timed event queue.
+- Trigger mode compiled through the same path as sequence mode.
+- Sequence JSON parser and examples.
+- Virtual actuator backend for simulation and tests.
+- Serial actuator UART write path for Arduino-style slave boards.
+- Arduino listener sketch for `SERVO`, `LIGHT`, `PING`, and `STATUS` frames.
+- Jitter, deadline miss, and sync drift telemetry.
+- CLI, benchmark harness, docs, and React/D3 dashboard scaffold.
+
+## Design
+
+See [astromech-control-engine-plan.md](astromech-control-engine-plan.md) for the original design notes.
 
 ## Build
 
@@ -29,15 +50,6 @@ npm run dev -- --host 127.0.0.1
 
 The dashboard starts with simulated telemetry and will switch to live data when a WebSocket bridge publishes snapshots at `ws://localhost:8765`.
 
-## Current Scope
-
-- Monotonic scheduler with timed event queue.
-- Trigger mode compiled through the same path as sequence mode.
-- Virtual actuator backend for simulation and tests.
-- Serial actuator UART write path for Arduino-style slave boards.
-- Jitter, deadline miss, and sync drift telemetry.
-- CLI, sample sequences/triggers, benchmark harness, docs, and React/D3 dashboard scaffold.
-
 ## Hardware Drafts
 
 - ACE-side serial implementation: `src/actuator_serial.cpp`
@@ -45,4 +57,10 @@ The dashboard starts with simulated telemetry and will switch to live data when 
 - Example hardware config: `config/actuators.example.json`
 - Wire protocol: `docs/SERIAL_PROTOCOL.md`
 
-The serial path is written but not hardware-validated. Start with `PING`, then one LED, then one unloaded servo.
+Default serial baud rate is `115200` on both ACE and Arduino. `make test` includes a guard to catch baud drift before hardware testing.
+
+The serial path is written but not hardware-validated. Start with `PING`, then one LED, then one unloaded servo before connecting panels, drivetrain, or anything with mechanical risk.
+
+## Stack
+
+C++20, Make/CMake, React, D3.js, Vite, Arduino C++.
